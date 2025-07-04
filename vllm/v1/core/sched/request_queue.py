@@ -16,7 +16,9 @@ class SchedulingPolicy(Enum):
     """Enum for scheduling policies."""
     FCFS = "fcfs"
     PRIORITY = "priority"
-
+    SJF_PROMPT_TOKENS = "sjf_prompt_tokens"
+    SJF_UNCOMPUTED_TOKENS_LOCAL = "sjf_uncomputed_tokens_local"
+    SJF_UNCOMPUTED_TOKENS_GLOBAL = "sjf_uncomputed_tokens_global"
 
 class RequestQueue(ABC):
     """Abstract base class for request queues."""
@@ -216,7 +218,12 @@ class PriorityRequestQueue(RequestQueue):
 
 def create_request_queue(policy: SchedulingPolicy) -> RequestQueue:
     """Create request queue based on scheduling policy."""
-    if policy == SchedulingPolicy.PRIORITY:
+    if policy in {
+        SchedulingPolicy.PRIORITY,
+        SchedulingPolicy.SJF_PROMPT_TOKENS,
+        SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_LOCAL,
+        SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_GLOBAL,
+    }:
         return PriorityRequestQueue()
     elif policy == SchedulingPolicy.FCFS:
         return FCFSRequestQueue()

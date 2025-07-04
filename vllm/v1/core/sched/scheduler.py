@@ -107,6 +107,12 @@ class Scheduler(SchedulerInterface):
             self.policy = SchedulingPolicy.PRIORITY
         elif self.scheduler_config.policy == "fcfs":
             self.policy = SchedulingPolicy.FCFS
+        elif self.scheduler_config.policy == "sjf_prompt_tokens":
+            self.policy = SchedulingPolicy.SJF_PROMPT_TOKENS
+        elif self.scheduler_config.policy == "sjf_uncomputed_tokens_local":
+            self.policy = SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_LOCAL
+        elif self.scheduler_config.policy == "sjf_uncomputed_tokens_global":
+            self.policy = SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_GLOBAL
         else:
             raise ValueError(
                 f"Unknown scheduling policy: {self.scheduler_config.policy}")
@@ -1064,6 +1070,27 @@ class Scheduler(SchedulerInterface):
         return len(self.running), len(self.waiting)
 
     def add_request(self, request: Request) -> None:
+        if self.policy == SchedulingPolicy.SJF_PROMPT_TOKENS:
+            request.priority = request.num_prompt_tokens
+        elif self.policy == SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_LOCAL:
+            request.priority = request
+            _, num_new_local_computed_tokens = \
+                self.kv_cache_manager.get_computed_blocks(
+                    request)
+            request.priority = request.num_prompt_tokens - num_new_local_computed_tokens
+        elif self.policy == SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_GLOBAL:
+            _, num_new_local_computed_tokens = \
+                self.kv_cache_manager.get_computed_blocks(
+                    request)
+            if self.connector is not None:
+                num_external_computed_tokens, _ = (
+                    self.connector.get_num_new_matched_tokens(
+                        request, num_new_local_computed_tokens))
+            num_computed_tokens = (num_new_local_computed_tokens +
+                                    num_external_computed_tokens)
+            request.priority = request.num_prompt_tokens - num_computed_tokens
+
+
         self.waiting.add_request(request)
         self.requests[request.request_id] = request
         if self.log_stats:
