@@ -2107,7 +2107,7 @@ class ParallelConfig:
 
 
 PreemptionMode = Literal["swap", "recompute"]
-SchedulerPolicy = Literal["fcfs", "priority"]
+SchedulerPolicy = Literal["fcfs", "priority", "sjf_prompt_tokens", "sjf_uncomputed_tokens_local", "sjf_uncomputed_tokens_global"]
 
 
 @config
