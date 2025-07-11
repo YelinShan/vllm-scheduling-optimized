@@ -2006,4 +2006,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
     validate_parsed_serve_args(args)
 
+    import shutil
+    lmcache_dir = "/home/yshan/mnt/LMCache"
+    shutil.rmtree(lmcache_dir, ignore_errors=True)
+    os.makedirs(lmcache_dir, exist_ok=True)
+
     uvloop.run(run_server(args))
