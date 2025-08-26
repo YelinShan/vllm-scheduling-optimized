@@ -130,6 +130,9 @@ class EngineCore:
                         self.batch_queue_size)
             self.batch_queue = queue.Queue(self.batch_queue_size)
 
+        self.STATS_ENGINECORE_ADD_REQUESTS = 0
+        self.FINISHED_REQ_LEN = 0
+
     def _initialize_kv_caches(
             self, vllm_config: VllmConfig) -> tuple[int, int, KVCacheConfig]:
         start = time.time()
@@ -232,9 +235,18 @@ class EngineCore:
         if not self.scheduler.has_requests():
             return {}, False
         scheduler_output = self.scheduler.schedule()
+        self.FINISHED_REQ_LEN += len(scheduler_output.finished_req_ids)
+        # print(f"[MY STATS FINISED ] FINISHED_REQ_LEN: {self.FINISHED_REQ_LEN}({len(scheduler_output.finished_req_ids)})" )
         model_output = self.execute_model(scheduler_output)
         engine_core_outputs = self.scheduler.update_from_output(
             scheduler_output, model_output)  # type: ignore
+
+        # 添加您的统计信息到 scheduler_stats
+        if self.log_stats and 0 in engine_core_outputs:
+            scheduler_stats = engine_core_outputs[0].scheduler_stats
+            if scheduler_stats:
+                # 添加自定义字段（需要先修改 SchedulerStats 类）
+                scheduler_stats.STATS_ENGINECORE_ADD_REQUESTS = self.STATS_ENGINECORE_ADD_REQUESTS
 
         return (engine_core_outputs,
                 scheduler_output.total_num_scheduled_tokens > 0)
@@ -423,6 +435,8 @@ class EngineCoreProc(EngineCore):
             daemon=True)
         self.output_thread.start()
 
+        # self.file = open("/home/yshan/Programs/vllm/inputqueue_socketget_log.txt", 'w')
+
     @contextmanager
     def _perform_handshakes(
         self,
@@ -601,9 +615,38 @@ class EngineCoreProc(EngineCore):
         # Loop until process is sent a SIGINT or SIGTERM
         while True:
             # 1) Poll the input queue until there is work to do.
+            # print("\n"+">"*50+"_process_input_queue"+">"*50)
+            # print(f"len of self.input_queue: {self.input_queue.qsize()}")
             self._process_input_queue()
+            # print("<"*50+"end_process_input_queue"+"<"*50+"\n")
+
+            # print("\n"+"=>"*25+"waiting_queue_state"+"=>"*25)
+            # for wqr in self.scheduler.waiting:
+                # print(wqr.request_id, wqr.priority)
+            # print("<="*25+"waiting_queue_state"+"<="*25+"\n")
+
+
             # 2) Step the engine core and return the outputs.
             self._process_engine_step()
+
+    # def _process_input_queue(self):
+    #     """Exits when an engine step needs to be performed."""
+    #     waited = False
+    #     while not self.engines_running and not self.scheduler.has_requests():
+    #         if logger.isEnabledFor(DEBUG) and self.input_queue.empty():
+    #             logger.debug("EngineCore waiting for work.")
+    #             waited = True
+    #         req = self.input_queue.get()
+    #         self._handle_client_request(*req)
+
+    #     if waited:
+    #         logger.debug("EngineCore loop active.")
+
+    #     # Handle any more client requests.
+    #     time.sleep(0.03)
+    #     while not self.input_queue.empty():
+    #         req = self.input_queue.get_nowait()
+    #         self._handle_client_request(*req)
 
     def _process_input_queue(self):
         """Exits when an engine step needs to be performed."""
@@ -618,7 +661,7 @@ class EngineCoreProc(EngineCore):
 
         if waited:
             logger.debug("EngineCore loop active.")
-
+        # time.sleep(0.1)
         # Handle any more client requests.
         while not self.input_queue.empty():
             req = self.input_queue.get_nowait()
@@ -640,6 +683,8 @@ class EngineCoreProc(EngineCore):
         """Dispatch request from client."""
 
         if request_type == EngineCoreRequestType.ADD:
+            # print("add_request:", request.request_id)
+            self.STATS_ENGINECORE_ADD_REQUESTS += 1
             self.add_request(request)
         elif request_type == EngineCoreRequestType.ABORT:
             self.abort_requests(request)
@@ -743,6 +788,12 @@ class EngineCoreProc(EngineCore):
                         request_type
                         == EngineCoreRequestType.ADD) else generic_decoder
                     request = decoder.decode(data_frames)
+
+                    # # 打印请求进入input_queue的时间戳
+                    # if request_type == EngineCoreRequestType.ADD:
+                    #     import time
+                    #     self.file.write(f"{time.time()}: {request.request_id}\n")
+
 
                     # Push to input queue for core busy loop.
                     self.input_queue.put_nowait((request_type, request))

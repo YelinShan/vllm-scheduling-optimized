@@ -272,6 +272,7 @@ async def async_request_openai_completions(
             "temperature": 0.0,
             "repetition_penalty": 1.0,
             "max_tokens": request_func_input.output_len,
+            "min_tokens":request_func_input.output_len - 1,
             "logprobs": request_func_input.logprobs,
             "stream": True,
             "stream_options": {

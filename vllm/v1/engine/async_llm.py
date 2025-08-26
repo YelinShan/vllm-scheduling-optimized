@@ -139,6 +139,9 @@ class AsyncLLM(EngineClient):
         except RuntimeError:
             pass
 
+        self.STATS_ASYNCLLMCLIENT_RECIEVED_REQUESTS = 0
+        # self.file = open("/home/yshan/Programs/vllm/client_send_log.txt", 'w')
+
     @classmethod
     def from_vllm_config(
         cls,
@@ -265,6 +268,10 @@ class AsyncLLM(EngineClient):
 
         # Add the EngineCoreRequest to EngineCore (separate process).
         await self.engine_core.add_request_async(request)
+
+        self.STATS_ASYNCLLMCLIENT_RECIEVED_REQUESTS += 1
+        # import time
+        # self.file.write(f"{time.time()}: {request.request_id}\n")
 
         if self.log_requests:
             logger.info("Added request %s.", request.request_id)

@@ -42,6 +42,9 @@ class SchedulerStats:
 
     num_corrupted_reqs: int = 0
 
+    # 添加您的统计字段
+    STATS_ENGINECORE_ADD_REQUESTS: int = 0
+
 
 @dataclass
 class LoRAStats:

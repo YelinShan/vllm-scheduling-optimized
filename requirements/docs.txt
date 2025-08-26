@@ -9,7 +9,6 @@ regex
 ruff
 
 # Required for argparse hook only
--f https://download.pytorch.org/whl/cpu
 cachetools
 cloudpickle
 fastapi
@@ -19,6 +18,5 @@ pillow
 psutil
 pybase64
 pydantic
-torch
 transformers
 zmq
