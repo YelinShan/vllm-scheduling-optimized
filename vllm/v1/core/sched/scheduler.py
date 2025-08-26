@@ -34,7 +34,7 @@ from vllm.v1.outputs import DraftTokenIds, KVConnectorOutput, ModelRunnerOutput
 from vllm.v1.request import Request, RequestStatus
 from vllm.v1.spec_decode.metrics import SpecDecodingStats
 from vllm.v1.structured_output import StructuredOutputManager
-
+from vllm.transformers_utils.tokenizer_group import init_tokenizer_from_configs
 logger = init_logger(__name__)
 
 
@@ -170,6 +170,12 @@ class Scheduler(SchedulerInterface):
         )
         self.use_pp = self.parallel_config.pipeline_parallel_size > 1
 
+        tokenizer_init = init_tokenizer_from_configs(
+            model_config=vllm_config.model_config,
+            scheduler_config=vllm_config.scheduler_config,
+            lora_config=vllm_config.lora_config)
+        self.tokenizer = tokenizer_init.get_lora_tokenizer(None)    
+
     def schedule(self) -> SchedulerOutput:
         # NOTE(woosuk) on the scheduling algorithm:
         # There's no "decoding phase" nor "prefill phase" in the scheduler.
@@ -253,7 +259,10 @@ class Scheduler(SchedulerInterface):
                 if new_blocks is None:
                     # The request cannot be scheduled.
                     # Preempt the lowest-priority request.
-                    if self.policy == SchedulingPolicy.PRIORITY:
+                    if self.policy in {SchedulingPolicy.PRIORITY,
+                                        SchedulingPolicy.SJF_PROMPT_TOKENS,
+                                        SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_LOCAL,
+                                        SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_GLOBAL}:
                         preempted_req = max(
                             self.running,
                             key=lambda r: (r.priority, r.arrival_time),
@@ -272,6 +281,27 @@ class Scheduler(SchedulerInterface):
                         preempted_req.record_event(
                             EngineCoreEventType.PREEMPTED, scheduled_timestamp)
 
+
+                    if self.policy == SchedulingPolicy.SJF_PROMPT_TOKENS:
+                        preempted_req.priority = preempted_req.num_prompt_tokens
+                    elif self.policy == SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_LOCAL:
+                        _, num_new_local_computed_tokens = \
+                            self.kv_cache_manager.get_computed_blocks(
+                                preempted_req)
+                        preempted_req.priority = preempted_req.num_prompt_tokens - num_new_local_computed_tokens
+                    elif self.policy == SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_GLOBAL:
+                        _, num_new_local_computed_tokens = \
+                            self.kv_cache_manager.get_computed_blocks(
+                                preempted_req)
+                        if self.connector is not None:
+                            num_external_computed_tokens, _ = (
+                                self.connector.get_num_new_matched_tokens(
+                                    preempted_req, num_new_local_computed_tokens))
+                        num_computed_tokens = (num_new_local_computed_tokens +
+                                                num_external_computed_tokens)
+                        preempted_req.priority = preempted_req.num_prompt_tokens - num_computed_tokens
+
+                    
                     self.waiting.prepend_request(preempted_req)
                     preempted_reqs.append(preempted_req)
                     if preempted_req == request:
@@ -312,6 +342,18 @@ class Scheduler(SchedulerInterface):
                 for i in encoder_inputs_to_schedule:
                     self.encoder_cache_manager.allocate(request, i)
                 encoder_compute_budget = new_encoder_compute_budget
+
+       
+        # for iii_req in scheduled_running_reqs:
+        #     print(f"[RUNNING] request_id={iii_req.request_id}, \
+        #             priority={getattr(iii_req, 'priority', 'N/A')}, \
+        #             num_tokens_with_spec={getattr(iii_req, 'num_tokens_with_spec', 'N/A')}, \
+        #             num_tokens={getattr(iii_req, 'num_tokens', 'N/A')}, \
+        #             num_prompt_tokens={getattr(iii_req, 'num_prompt_tokens', 'N/A')}, \
+        #             num_computed_tokens={getattr(iii_req, 'num_computed_tokens', 'N/A')}, \
+        #             num_cached_tokens={getattr(iii_req, 'num_cached_tokens', 'N/A')}, \
+        #             num_calc_tokens={iii_req.num_prompt_tokens - iii_req.num_cached_tokens}")
+        # print("\n" * 2 + "=" * 80 + "\n" * 2)
 
         # Record the LoRAs in scheduled_running_reqs
         scheduled_loras: set[int] = set()
@@ -518,6 +560,7 @@ class Scheduler(SchedulerInterface):
                 # Count the number of prefix cached tokens.
                 if request.num_cached_tokens < 0:
                     request.num_cached_tokens = num_computed_tokens
+
                 # Encoder-related.
                 if encoder_inputs_to_schedule:
                     scheduled_encoder_inputs[request.request_id] = (
@@ -1073,7 +1116,6 @@ class Scheduler(SchedulerInterface):
         if self.policy == SchedulingPolicy.SJF_PROMPT_TOKENS:
             request.priority = request.num_prompt_tokens
         elif self.policy == SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_LOCAL:
-            request.priority = request
             _, num_new_local_computed_tokens = \
                 self.kv_cache_manager.get_computed_blocks(
                     request)
@@ -1091,6 +1133,11 @@ class Scheduler(SchedulerInterface):
             request.priority = request.num_prompt_tokens - num_computed_tokens
 
 
+        # print(f"[RUNNING] request_id={request.request_id}, \
+        #         num_prompt_tokens={len(request.prompt_token_ids)}, \
+        #         num_cached_tokens={getattr(request, 'num_cached_tokens', 'N/A')}, \
+        #         num_computed_tokens={getattr(request, 'num_computed_tokens', 'N/A')}"
+        #         )
         self.waiting.add_request(request)
         self.requests[request.request_id] = request
         if self.log_stats:
