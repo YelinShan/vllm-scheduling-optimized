@@ -703,10 +703,6 @@ async def create_chat_completion(request: ChatCompletionRequest,
     elif isinstance(generator, ChatCompletionResponse):
         return JSONResponse(content=generator.model_dump())
 
-    # import time
-    # log_file = open("/home/yshan/Programs/vllm/v1-chat-completions-log.txt", "a")
-    # log_file.write(f"{time.time()}: {request.request_id}\n")
-
     return StreamingResponse(content=generator, media_type="text/event-stream")
 
 
