@@ -1,3 +1,4 @@
 [submodule "benchmarks/multi-round-qa"]
 	path = benchmarks/multi-round-qa
 	url = https://github.com/YelinShan/multi-round-qa.git
+	branch = bug_fix
