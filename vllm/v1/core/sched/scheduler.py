@@ -1232,6 +1232,22 @@ class Scheduler(SchedulerInterface):
         return spec_decoding_stats
 
     def shutdown(self) -> None:
+        # Wait for unfinished requests to complete before shutting down
+        # This provides graceful shutdown similar to LMCache's behavior
+        SHUTDOWN_TIMEOUT = 1.0  # Match LMCache's timeout
+        import time
+        
+        start_time = time.time()
+        while (self.has_unfinished_requests() and 
+               (time.time() - start_time) < SHUTDOWN_TIMEOUT):
+            time.sleep(0.1)
+            
+        if self.has_unfinished_requests():
+            logger.warning(
+                f"Scheduler shutdown timeout after {SHUTDOWN_TIMEOUT}s with "
+                f"{self.get_num_unfinished_requests()} unfinished requests"
+            )
+        
         if self.kv_event_publisher:
             self.kv_event_publisher.shutdown()
 
