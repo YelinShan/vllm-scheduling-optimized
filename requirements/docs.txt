@@ -14,4 +14,3 @@ ruff
 cachetools
 msgspec
 pydantic
-torch
