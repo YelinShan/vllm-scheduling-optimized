@@ -46,6 +46,10 @@ fi
 
 mkdir -p "$LOG_DIR"
 
+SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GPU_ID=0
+"${SCRIPT_DIR}/check_gpu_idle.sh" "${GPU_ID}"
+
 # 3) 组装命令数组（基础部分）
 CMD=(
   python -m vllm.entrypoints.openai.api_server
@@ -53,7 +57,7 @@ CMD=(
   --port 8000
   --max-model-len 30k
   --block-size 16
-  --gpu_memory_utilization 0.2
+  --gpu_memory_utilization 0.6
   --scheduling-policy "$MODE"
   --enable-prefix-caching
   --no-enable-chunked-prefill
@@ -74,9 +78,19 @@ if $LMCACHE_ENABLED; then
   ENV_PREFIX+=( "LMCACHE_CONFIG_FILE=$CONFIG_FILE" )
 fi
 
+{
+  echo "==================== START ===================="
+  echo "Date Time: $DATE_TIME"
+  echo 
+  echo "SchedulerPolicy: $MODE"
+  echo "LMCache Flag: $([ "$LMCACHE_ENABLED" = "true" ] && echo lmcache_enabled || echo '<none>')"
+  echo "==================== OUTPUT ===================="
+} > "$LOGFILE"
+
+
 # 6) 日志头：把命令按多行打印（和实际执行一致）
 {
-  echo "===== COMMAND ====="
+  echo "==================== COMMAND ===================="
   if $LMCACHE_ENABLED; then
     echo "CUDA_VISIBLE_DEVICES=0 LMCACHE_CONFIG_FILE=$CONFIG_FILE \\"
   else
@@ -84,10 +98,7 @@ fi
   fi
   printf '  %s \\\n' "${CMD[@]}"
   echo
-  echo "Date Time: $DATE_TIME"
-  echo "SchedulerPolicy: $MODE"
-  echo "LMCache Enabled: $LMCACHE_ENABLED"
-  echo "===== OUTPUT ====="
+  echo "==================== OUTPUT ===================="
 } >> "$LOGFILE"
 
 # 7) 执行命令：
