@@ -23,7 +23,12 @@ else:
 logger = init_logger(__name__)
 
 PreemptionMode = Literal["swap", "recompute"]
-SchedulerPolicy = Literal["fcfs", "priority", "sjf_prompt_tokens", "sjf_uncomputed_tokens_local", "sjf_uncomputed_tokens_global"]
+SchedulerPolicy = Literal["fcfs", \
+                    "priority", \
+                    "sjf_prompt_tokens", \
+                    "sjf_uncomputed_tokens_local", \
+                    "sjf_uncomputed_tokens_global", \
+                    "sjf_cost_aware"]
 
 
 @config

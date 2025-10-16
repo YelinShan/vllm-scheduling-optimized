@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Optional
 
 from vllm.v1.spec_decode.metrics import SpecDecodingStats
 
+import contextlib
+
 if TYPE_CHECKING:
     from vllm.v1.engine import EngineCoreEvent, EngineCoreOutput, FinishReason
     from vllm.v1.engine.output_processor import RequestState
@@ -242,3 +244,56 @@ class LoRARequestStates:
             if stats.running_requests:
                 iteration_stats.running_lora_adapters[lora_name] = \
                     len(stats.running_requests)
+
+
+@dataclass
+class SchedulingGuidance:
+    """用于指导调度决策的性能统计数据"""
+
+    cpu_prepare_per_token: float = 0.0
+    ssd2cpu_per_token: float = 0.0
+    cpu2gpu_per_token: float = 0.0
+    gpu_compute_per_token: float = 0.0
+    ssd2gpu_per_token: float = 0.0
+
+    def update(self, metric: str, new_value: float, alpha: float = 0.1):
+        if not hasattr(self, metric):
+            raise ValueError(f"未知的 metric: {metric}")
+
+        old_value = getattr(self, metric)
+        if old_value == 0.0:  # 或者用一个标志位判断是不是第一次
+            updated_value = new_value
+        else:
+            updated_value = alpha * new_value + (1 - alpha) * old_value
+        setattr(self, metric, updated_value)
+        if metric == "ssd2cpu_per_token":
+            setattr(self, "ssd2gpu_per_token", updated_value+self.cpu2gpu_per_token)
+
+    @contextlib.contextmanager
+    def time_block(
+        self,
+        type_name: "str",
+        token_nums: int,
+        ):
+        start_time = time.perf_counter_ns()
+        try:
+            yield
+        finally:
+            end_time = time.perf_counter_ns()
+            duration = end_time - start_time
+            time_per_token = duration / token_nums
+            
+            self.update(type_name, time_per_token)
+
+    def __str__(self) -> str:
+        # 人类可读：对齐 + ns/token
+        return (
+            "SchedulingGuidance (ns/token)\n"
+            f"  cpu_prepare          : {self.cpu_prepare_per_token:10.0f}\n"
+            f"  cpu2gpu              : {self.cpu2gpu_per_token:10.0f}\n"
+            f"  ssd2cpu              : {self.ssd2cpu_per_token:10.0f}\n"
+            f"  ssd2gpu              : {self.ssd2gpu_per_token:10.0f}\n"
+            f"  gpu_compute          : {self.gpu_compute_per_token:10.0f}\n"
+        )
+
+    

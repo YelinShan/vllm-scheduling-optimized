@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from vllm.pooling_params import PoolingParams
     from vllm.sampling_params import SamplingParams
     from vllm.v1.request import Request
+    from vllm.v1.metrics.stats import SchedulingGuidance
 
 
 @dataclass
@@ -155,3 +156,5 @@ class SchedulerOutput:
 
     # KV Cache Connector metadata.
     kv_connector_metadata: Optional[KVConnectorMetadata] = None
+
+    scheduling_guidance: Optional[SchedulingGuidance] = None

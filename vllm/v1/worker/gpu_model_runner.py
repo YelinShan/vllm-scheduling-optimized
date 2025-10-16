@@ -87,6 +87,8 @@ from .utils import (AttentionGroup, MultiModalBudget,
                     add_kv_sharing_layers_to_kv_cache_groups, bind_kv_cache,
                     gather_mm_placeholders, sanity_check_mm_encoder_outputs,
                     scatter_mm_placeholders)
+                    
+from contextlib import nullcontext
 
 if TYPE_CHECKING:
     import xgrammar as xgr
@@ -1458,6 +1460,7 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
         scheduler_output: "SchedulerOutput",
         intermediate_tensors: Optional[IntermediateTensors] = None,
     ) -> Union[ModelRunnerOutput, IntermediateTensors]:
+        scheduling_guidance = scheduler_output.scheduling_guidance
         self._update_states(scheduler_output)
         if not scheduler_output.total_num_scheduled_tokens:
             if not has_kv_transfer_group():
@@ -1557,6 +1560,9 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
 
         # Run the model.
         # Use persistent buffers for CUDA graphs.
+        time_ctx = (scheduling_guidance.time_block("gpu_compute_per_token", num_input_tokens)
+            if scheduling_guidance is not None
+            else nullcontext())
         with set_forward_context(
                 attn_metadata,
                 self.vllm_config,
@@ -1566,14 +1572,14 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 batch_descriptor=batch_descriptor,
         ), self.maybe_get_kv_connector_output(
                 scheduler_output) as kv_connector_output:
-
-            model_output = self.model(
-                input_ids=input_ids,
-                positions=positions,
-                intermediate_tensors=intermediate_tensors,
-                inputs_embeds=inputs_embeds,
-                **model_kwargs,
-            )
+            with time_ctx:
+                model_output = self.model(
+                    input_ids=input_ids,
+                    positions=positions,
+                    intermediate_tensors=intermediate_tensors,
+                    inputs_embeds=inputs_embeds,
+                    **model_kwargs,
+                )
 
         if self.use_aux_hidden_state_outputs:
             hidden_states, aux_hidden_states = model_output

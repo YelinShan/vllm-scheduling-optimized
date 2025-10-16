@@ -289,6 +289,7 @@ class EngineCore:
         if not self.scheduler.has_requests():
             return {}, False
         scheduler_output = self.scheduler.schedule()
+        # print("MY LOG GUIDANCE: ", scheduler_output.scheduling_guidance)
         model_output = self.execute_model_with_error_logging(
             self.model_executor.execute_model,  # type: ignore
             scheduler_output)
@@ -734,6 +735,22 @@ class EngineCoreProc(EngineCore):
         while True:
             # 1) Poll the input queue until there is work to do.
             self._process_input_queue()
+
+            # print(f"MYLOG: Waiting Len:{len(self.scheduler.waiting)} \
+            #     Running Len:{len(self.scheduler.running)}")
+            # priorities = [req.priority for req in self.scheduler.waiting]
+            # n = len(priorities)
+
+            # if n <= 30:
+            #     # 队列比较短，直接全打
+            #     print(f"MYLOG Queue order ({n}): {priorities}")
+            # else:
+            #     head = priorities[:10]
+            #     mid_start = n // 2 - 5
+            #     mid = priorities[mid_start:mid_start + 10]
+            #     tail = priorities[-10:]
+            #     print(f"MYLOG Queue order ({n}): head={head} ... mid={mid} ... tail={tail}")
+
             # 2) Step the engine core and return the outputs.
             self._process_engine_step()
 

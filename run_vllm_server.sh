@@ -11,7 +11,7 @@ set -o nounset
 set -o pipefail
 
 # 允许的调度策略
-VALID_MODES=("fcfs" "sjf_prompt_tokens" "sjf_uncomputed_tokens_local" "sjf_uncomputed_tokens_global")
+VALID_MODES=("fcfs" "sjf_prompt_tokens" "sjf_uncomputed_tokens_local" "sjf_uncomputed_tokens_global" "sjf_cost_aware")
 
 MODE="${1:-}"
 LMFLAG="${2:-}"                    # 传入 "lmcache_enabled" 则启用 LMCache
@@ -22,6 +22,8 @@ CONFIG_FILE="/home/yshan/Programs/LMCache/lmcache_config.yaml"
 # 若第 3 个参数给了目录，则把日志写到该目录；否则默认到当前目录下的 vllm_server_log
 LOG_DIR="${3:-./vllm_server_log}"
 LOGFILE="$LOG_DIR/run_vllm_server.log"
+
+NUM_GPU_BLOCKS=12000
 
 # 1) 校验 MODE
 if [[ -z "$MODE" ]]; then
@@ -57,10 +59,11 @@ CMD=(
   --port 8000
   --max-model-len 30k
   --block-size 16
-  --gpu_memory_utilization 0.6
+  --num-gpu-blocks-override $NUM_GPU_BLOCKS
+  --gpu_memory_utilization 0.8
   --scheduling-policy "$MODE"
   --enable-prefix-caching
-  --no-enable-chunked-prefill
+  --enable-chunked-prefill
   --disable-log-requests
   --disable-uvicorn-access-log
 )

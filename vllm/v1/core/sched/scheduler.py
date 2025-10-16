@@ -29,7 +29,7 @@ from vllm.v1.core.sched.utils import check_stop, remove_all
 from vllm.v1.engine import (EngineCoreEventType, EngineCoreOutput,
                             EngineCoreOutputs)
 from vllm.v1.kv_cache_interface import KVCacheConfig
-from vllm.v1.metrics.stats import SchedulerStats
+from vllm.v1.metrics.stats import SchedulerStats, SchedulingGuidance
 from vllm.v1.outputs import DraftTokenIds, KVConnectorOutput, ModelRunnerOutput
 from vllm.v1.request import Request, RequestStatus
 from vllm.v1.spec_decode.metrics import SpecDecodingStats
@@ -113,6 +113,8 @@ class Scheduler(SchedulerInterface):
             self.policy = SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_LOCAL
         elif self.scheduler_config.policy == "sjf_uncomputed_tokens_global":
             self.policy = SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_GLOBAL
+        elif self.scheduler_config.policy == "sjf_cost_aware":
+            self.policy = SchedulingPolicy.SJF_COST_AWARE
         else:
             raise ValueError(
                 f"Unknown scheduling policy: {self.scheduler_config.policy}")
@@ -175,6 +177,8 @@ class Scheduler(SchedulerInterface):
             scheduler_config=vllm_config.scheduler_config,
             lora_config=vllm_config.lora_config)
         self.tokenizer = tokenizer_init.get_lora_tokenizer(None)    
+
+        self.scheduling_guidance: Optional[SchedulingGuidance] = None if self.policy == "fcfs" else SchedulingGuidance()
 
     def schedule(self) -> SchedulerOutput:
         # NOTE(woosuk) on the scheduling algorithm:
@@ -262,7 +266,8 @@ class Scheduler(SchedulerInterface):
                     if self.policy in {SchedulingPolicy.PRIORITY,
                                         SchedulingPolicy.SJF_PROMPT_TOKENS,
                                         SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_LOCAL,
-                                        SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_GLOBAL}:
+                                        SchedulingPolicy.SJF_UNCOMPUTED_TOKENS_GLOBAL,
+                                        SchedulingPolicy.SJF_COST_AWARE}:
                         preempted_req = max(
                             self.running,
                             key=lambda r: (r.priority, r.arrival_time),
@@ -300,6 +305,30 @@ class Scheduler(SchedulerInterface):
                         num_computed_tokens = (num_new_local_computed_tokens +
                                                 num_external_computed_tokens)
                         preempted_req.priority = preempted_req.num_prompt_tokens - num_computed_tokens
+                    elif self.policy == SchedulingPolicy.SJF_COST_AWARE:
+                        priority = 0.0
+                        _, num_new_local_computed_tokens = \
+                            self.kv_cache_manager.get_computed_blocks(
+                                preempted_req)
+                        if self.connector is not None:
+                            detailed_lmcache_info, _ = (
+                                self.connector.get_num_new_matched_tokens_detailed(
+                                    preempted_req, num_new_local_computed_tokens))
+                            num_external_computed_tokens, backend_info_dict = detailed_lmcache_info
+                            num_computed_tokens = (num_new_local_computed_tokens +
+                                                num_external_computed_tokens)
+                            remain_cal_tokens_num = preempted_req.num_prompt_tokens - num_computed_tokens
+                            gpu_cal_cost = self.scheduling_guidance.gpu_compute_per_token * remain_cal_tokens_num
+                            priority += gpu_cal_cost
+                            for backend_name, hit_tokens in backend_info_dict.items():
+                                if backend_name == "LocalCPUBackend":
+                                    cpu_cost = (self.scheduling_guidance.cpu_prepare_per_token +\
+                                        self.scheduling_guidance.cpu2gpu_per_token) * hit_tokens
+                                    priority += cpu_cost
+                                elif backend_name == "LocalDiskBackend":
+                                    ssd_cost = self.scheduling_guidance.ssd2gpu_per_token * hit_tokens
+                                    priority += ssd_cost
+                            preempted_req.priority = int(priority)
 
                     
                     self.waiting.prepend_request(preempted_req)
@@ -615,6 +644,7 @@ class Scheduler(SchedulerInterface):
             get_freed_mm_hashes(),
             structured_output_request_ids=structured_output_request_ids,
             grammar_bitmask=grammar_bitmask,
+            scheduling_guidance=self.scheduling_guidance
         )
 
         # NOTE(Kuntai): this function is designed for multiple purposes:
@@ -1118,6 +1148,34 @@ class Scheduler(SchedulerInterface):
             num_computed_tokens = (num_new_local_computed_tokens +
                                     num_external_computed_tokens)
             request.priority = request.num_prompt_tokens - num_computed_tokens
+        elif self.policy == SchedulingPolicy.SJF_COST_AWARE:
+            priority = 0.0
+            _, num_new_local_computed_tokens = \
+                self.kv_cache_manager.get_computed_blocks(
+                    request)
+            if self.connector is not None:
+                detailed_lmcache_info, _ = (
+                    self.connector.get_num_new_matched_tokens_detailed(
+                        request, num_new_local_computed_tokens))
+                num_external_computed_tokens, backend_info_dict = detailed_lmcache_info
+                num_computed_tokens = (num_new_local_computed_tokens +
+                                    num_external_computed_tokens)
+                remain_cal_tokens_num = request.num_prompt_tokens - num_computed_tokens
+                gpu_cal_cost = self.scheduling_guidance.gpu_compute_per_token * remain_cal_tokens_num
+                priority += gpu_cal_cost
+                for backend_name, hit_tokens in backend_info_dict.items():
+                    if backend_name == "LocalCPUBackend":
+                        cpu_cost = (self.scheduling_guidance.cpu_prepare_per_token +\
+                             self.scheduling_guidance.cpu2gpu_per_token) * hit_tokens
+                        priority += cpu_cost
+                        # print("MY LOG: IN LocalCPUBackend")
+                    elif backend_name == "LocalDiskBackend":
+                        ssd_cost = self.scheduling_guidance.ssd2gpu_per_token * hit_tokens
+                        priority += ssd_cost
+                        # print("MY LOG: IN LocalDiskBackend")
+                request.priority = int(priority)
+
+
 
 
         self.waiting.add_request(request)

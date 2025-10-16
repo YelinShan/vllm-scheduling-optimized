@@ -127,6 +127,27 @@ class LMCacheConnectorV1(KVConnectorBase_V1):
         return self._lmcache_engine.get_num_new_matched_tokens(
             request, num_computed_tokens), False
 
+    def get_num_new_matched_tokens_detailed(
+        self,
+        request: "Request",
+        num_computed_tokens: int,
+    ) -> tuple[tuple, bool]:
+        """
+        Get number of new tokens that can be loaded from the
+        external KV cache beyond the num_computed_tokens.
+        
+        Args:
+            request (Request): the request object.
+            num_computed_tokens (int): the number of locally
+                computed tokens for this request
+
+        Returns:
+            the number of tokens that can be loaded from the 
+            external KV cache beyond what is already computed.
+        """
+        return self._lmcache_engine.get_num_new_matched_tokens_detailed(
+            request, num_computed_tokens), False
+
     def update_state_after_alloc(self, request: "Request",
                                  blocks: "KVCacheBlocks",
                                  num_external_tokens: int):

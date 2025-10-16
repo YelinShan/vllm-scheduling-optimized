@@ -256,6 +256,15 @@ class KVConnectorBase_V1(ABC):
         pass
 
     @abstractmethod
+    def get_num_new_matched_tokens_detailed(
+        self,
+        request: "Request",
+        num_computed_tokens: int,
+    ) -> tuple[tuple, bool]:
+
+        pass
+
+    @abstractmethod
     def update_state_after_alloc(self, request: "Request",
                                  blocks: "KVCacheBlocks",
                                  num_external_tokens: int):

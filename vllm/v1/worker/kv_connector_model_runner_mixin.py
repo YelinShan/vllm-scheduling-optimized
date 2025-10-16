@@ -14,6 +14,7 @@ from vllm.distributed.kv_transfer import (get_kv_transfer_group,
 from vllm.distributed.kv_transfer.kv_connector.base import KVConnectorBase
 from vllm.forward_context import get_forward_context, set_forward_context
 from vllm.logger import init_logger
+from vllm.v1.metrics.stats import SchedulingGuidance
 from vllm.v1.outputs import (EMPTY_MODEL_RUNNER_OUTPUT, KVConnectorOutput,
                              ModelRunnerOutput)
 
@@ -102,7 +103,10 @@ class KVConnectorModelRunnerMixin:
         # These transfers are designed to be async and the requests
         # involved may be disjoint from the running requests.
         # Do this here to save a collective_rpc.
-        kv_connector.start_load_kv(get_forward_context())
+        scheduling_guidance=scheduler_output.scheduling_guidance
+
+
+        kv_connector.start_load_kv(get_forward_context(), scheduling_guidance=scheduling_guidance)
         try:
             yield output
         finally:
