@@ -111,6 +111,7 @@ class RequestState:
 
         self.stats = RequestStateStats(
             arrival_time=arrival_time) if log_stats else None
+        self._first_token_timing_reported = False
 
     @classmethod
     def from_new_request(
@@ -186,6 +187,30 @@ class RequestState:
         output = self._new_completion_output(new_token_ids, finish_reason,
                                              stop_reason)
 
+        first_token_timing: Optional[dict[str, float]] = None
+        if self.stats is not None and not self._first_token_timing_reported:
+            stats = self.stats
+            if stats.first_token_ts > 0.0 and stats.processing_start_ts > 0.0:
+                processing_start = stats.processing_start_ts
+                kv_ready = (stats.kv_fetch_ready_ts
+                            if stats.kv_fetch_ready_ts > 0.0 else
+                            processing_start)
+                scheduled_ts = (stats.scheduled_ts
+                                if stats.scheduled_ts > 0.0 else kv_ready)
+                first_token_ts = stats.first_token_ts
+                kv_ready = max(kv_ready, processing_start)
+                scheduled_ts = max(scheduled_ts, kv_ready)
+                total_processing_ms = max(first_token_ts - processing_start,
+                                          0.0) * 1000.0
+                kv_fetch_ms = max(kv_ready - processing_start, 0.0) * 1000.0
+                prefill_ms = max(first_token_ts - scheduled_ts, 0.0) * 1000.0
+                first_token_timing = {
+                    "total_processing_ms": total_processing_ms,
+                    "kv_fetch_ms": kv_fetch_ms,
+                    "prefill_ms": prefill_ms,
+                }
+                self._first_token_timing_reported = True
+
         if self.parent_req is None:
             outputs = [output]
         else:
@@ -195,7 +220,8 @@ class RequestState:
                 return None
 
         return self._new_request_output(request_id, outputs, finished,
-                                        kv_transfer_params)
+                                        kv_transfer_params,
+                                        first_token_timing=first_token_timing)
 
     def _new_request_output(
         self,
@@ -203,6 +229,8 @@ class RequestState:
         outputs: Union[list[CompletionOutput], list[PoolingOutput]],
         finished: bool,
         kv_transfer_params: Optional[dict[str, Any]] = None,
+        *,
+        first_token_timing: Optional[dict[str, float]] = None,
     ) -> Union[RequestOutput, PoolingRequestOutput]:
 
         first_output = outputs[0]
@@ -230,6 +258,7 @@ class RequestState:
             finished=finished,
             kv_transfer_params=kv_transfer_params,
             num_cached_tokens=self.num_cached_tokens,
+            first_token_timing=first_token_timing,
         )
 
     def _new_completion_output(

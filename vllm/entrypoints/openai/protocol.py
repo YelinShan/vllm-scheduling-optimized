@@ -143,6 +143,9 @@ class UsageInfo(OpenAIBaseModel):
 class RequestResponseMetadata(BaseModel):
     request_id: str
     final_usage_info: Optional[UsageInfo] = None
+    total_processing_ms: Optional[float] = None
+    kv_fetch_ms: Optional[float] = None
+    prefill_ms: Optional[float] = None
 
 
 class JsonSchemaResponseFormat(OpenAIBaseModel):

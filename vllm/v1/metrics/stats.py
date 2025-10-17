@@ -69,6 +69,8 @@ class RequestStateStats:
     scheduled_ts: float = 0.0
     first_token_ts: float = 0.0
     last_token_ts: float = 0.0
+    processing_start_ts: float = 0.0
+    kv_fetch_ready_ts: float = 0.0
 
 
 @dataclass
@@ -152,6 +154,11 @@ class IterationStats:
             elif event.type == EngineCoreEventType.PREEMPTED:
                 self.num_preempted_reqs += 1
                 LoRARequestStates.preempted_request(lora_stats, req_id)
+            elif event.type == EngineCoreEventType.PROCESSING_STARTED:
+                if req_stats.processing_start_ts == 0.0:
+                    req_stats.processing_start_ts = event.timestamp
+            elif event.type == EngineCoreEventType.KV_CACHE_READY:
+                req_stats.kv_fetch_ready_ts = event.timestamp
 
     def update_from_finished_request(self, finish_reason: "FinishReason",
                                      num_prompt_tokens: int,

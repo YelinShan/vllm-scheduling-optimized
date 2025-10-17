@@ -58,6 +58,10 @@ class Request:
         # P/D: Connector-specific KV transfer parameters.
         self.kv_transfer_params: Optional[dict[str, Any]] = None
 
+        self._processing_start_recorded = False
+        self._kv_cache_ready_recorded = False
+        self._kv_cache_fetch_in_progress = False
+
         if pooling_params is not None:
             # Pooling models.
             self.max_tokens = 1
@@ -192,6 +196,31 @@ class Request:
             return None
         events, self.events = self.events, []
         return events
+
+    def record_processing_started(self,
+                                  timestamp: Optional[float] = None) -> None:
+        if not self._processing_start_recorded:
+            self.record_event(EngineCoreEventType.PROCESSING_STARTED,
+                              timestamp)
+            self._processing_start_recorded = True
+
+    def mark_kv_cache_fetch_in_progress(self) -> None:
+        self._kv_cache_fetch_in_progress = True
+        # Allow recording of a subsequent KV ready event for this fetch.
+        self._kv_cache_ready_recorded = False
+
+    @property
+    def kv_cache_fetch_in_progress(self) -> bool:
+        return self._kv_cache_fetch_in_progress
+
+    def record_kv_cache_ready(self,
+                              timestamp: Optional[float] = None) -> None:
+        if not self._kv_cache_fetch_in_progress:
+            return
+        if not self._kv_cache_ready_recorded:
+            self.record_event(EngineCoreEventType.KV_CACHE_READY, timestamp)
+            self._kv_cache_ready_recorded = True
+        self._kv_cache_fetch_in_progress = False
 
 
 class RequestStatus(enum.IntEnum):

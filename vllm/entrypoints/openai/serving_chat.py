@@ -340,6 +340,16 @@ class OpenAIServingChat(OpenAIServing):
         return request.messages[-1]["role"]
 
     @staticmethod
+    def _apply_first_token_timing_to_metadata(
+        request_metadata: RequestResponseMetadata,
+        timing: dict[str, float],
+    ) -> None:
+        request_metadata.total_processing_ms = timing.get(
+            "total_processing_ms")
+        request_metadata.kv_fetch_ms = timing.get("kv_fetch_ms")
+        request_metadata.prefill_ms = timing.get("prefill_ms")
+
+    @staticmethod
     def _bracket_level(s: str, opening='{', closing='}') -> int:
         """
         Calculate the current level of nested brackets in a given string.
@@ -477,6 +487,7 @@ class OpenAIServingChat(OpenAIServing):
         created_time = int(time.time())
         chunk_object_type: Final = "chat.completion.chunk"
         first_iteration = True
+        timing_recorded = False
 
         # Send response for each token for each request.n (index)
         num_choices = 1 if request.n is None else request.n
@@ -560,6 +571,11 @@ class OpenAIServingChat(OpenAIServing):
 
         try:
             async for res in result_generator:
+                if (not timing_recorded and res.first_token_timing
+                        and request_metadata is not None):
+                    self._apply_first_token_timing_to_metadata(
+                        request_metadata, res.first_token_timing)
+                    timing_recorded = True
                 if res.prompt_token_ids is not None:
                     num_prompt_tokens = len(res.prompt_token_ids)
                     if res.encoder_prompt_token_ids is not None:
@@ -1152,9 +1168,12 @@ class OpenAIServingChat(OpenAIServing):
 
         created_time = int(time.time())
         final_res: Optional[RequestOutput] = None
+        first_token_timing: Optional[dict[str, float]] = None
 
         try:
             async for res in result_generator:
+                if first_token_timing is None and res.first_token_timing:
+                    first_token_timing = res.first_token_timing
                 final_res = res
         except asyncio.CancelledError:
             return self.create_error_response("Client disconnected")
@@ -1394,6 +1413,9 @@ class OpenAIServingChat(OpenAIServing):
                 cached_tokens=final_res.num_cached_tokens)
 
         request_metadata.final_usage_info = usage
+        if first_token_timing:
+            self._apply_first_token_timing_to_metadata(request_metadata,
+                                                       first_token_timing)
 
         response = ChatCompletionResponse(
             id=request_id,

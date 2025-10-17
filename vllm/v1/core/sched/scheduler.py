@@ -445,6 +445,9 @@ class Scheduler(SchedulerInterface):
                     # Total computed tokens (local + external).
                     num_computed_tokens = (num_new_local_computed_tokens +
                                            num_external_computed_tokens)
+                    if self.log_stats:
+                        request.record_processing_started(
+                            scheduled_timestamp)
                 # KVTransfer: WAITING reqs have num_computed_tokens > 0
                 # after async KV recvs are completed.
                 else:
@@ -460,6 +463,7 @@ class Scheduler(SchedulerInterface):
                 if load_kv_async:
                     assert num_external_computed_tokens > 0
                     num_new_tokens = 0
+                    request.mark_kv_cache_fetch_in_progress()
                 # Number of tokens to be scheduled.
                 else:
                     # We use `request.num_tokens` instead of
@@ -1358,6 +1362,8 @@ class Scheduler(SchedulerInterface):
 
         # Update the request state for scheduling.
         request.num_computed_tokens = num_computed_tokens
+        if self.log_stats:
+            request.record_kv_cache_ready()
 
         # Return that we are ready.
         self.finished_recving_kv_req_ids.remove(request.request_id)

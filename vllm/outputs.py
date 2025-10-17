@@ -119,6 +119,7 @@ class RequestOutput:
         *,
         multi_modal_placeholders: Optional[MultiModalPlaceholderDict] = None,
         kv_transfer_params: Optional[dict[str, Any]] = None,
+        first_token_timing: Optional[dict[str, float]] = None,
         # Forward compatibility, code that uses args added in new release can
         # still run with older versions of vLLM without breaking.
         **kwargs: Any,
@@ -139,6 +140,7 @@ class RequestOutput:
         self.encoder_prompt_token_ids = encoder_prompt_token_ids
         self.num_cached_tokens = num_cached_tokens
         self.kv_transfer_params = kv_transfer_params
+        self.first_token_timing = first_token_timing
 
     def add(self, next_output: "RequestOutput", aggregate: bool) -> None:
         """Merge subsequent RequestOutput into this one"""
@@ -170,6 +172,10 @@ class RequestOutput:
                     break
             else:
                 self.outputs.append(next_completion)
+
+        if (self.first_token_timing is None
+                and next_output.first_token_timing is not None):
+            self.first_token_timing = next_output.first_token_timing
 
     @classmethod
     def from_seq_group(
